@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>可拖拽分隔线代码编辑器</title>
+    <link href="https://cdn.jsdelivr.net/npm/prismjs@1.24.1/themes/prism.min.css" rel="stylesheet" />
+    <style>
+        :root {
+            --editor-bg: #f8f9fa;
+            --editor-text: #333;
+            --tab-bg: #e1e1e1;
+            --tab-active: #2196F3;
+            --drag-line: #666;
+            --drag-line-active: #2196F3;
+            --preview-bg: #fff;
+            --header-bg: #f5f5f5;
+            --border-color: #ddd;
+        }
+        [data-theme="dark"] {
+            --editor-bg: #1e1e1e;
+            --editor-text: #d4d4d4;
+            --tab-bg: #2d2d2d;
+            --tab-active: #0d47a1;
+            --drag-line: #555;
+            --drag-line-active: #0d47a1;
+            --preview-bg: #2d2d2d;
+            --header-bg: #1e1e1e;
+            --border-color: #444;
+        }
+        body {
+            margin: 0;
+            font-family: Arial;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            background: var(--editor-bg);
+            color: var(--editor-text);
+        }
+        .container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+        .editor-container {
+            width: 70%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 10px;
+            background: var(--header-bg);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .theme-toggle {
+            padding: 5px 10px;
+            background: var(--tab-bg);
+            border: 1px solid var(--border-color);
+            color: var(--editor-text);
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .tab-header {
+            display: flex;
+            background: var(--header-bg);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .tab-btn {
+            padding: 10px 15px;
+            background: var(--tab-bg);
+            border: none;
+            cursor: pointer;
+            border-right: 1px solid var(--border-color);
+            color: var(--editor-text);
+        }
+        .tab-btn.active {
+            background: var(--tab-active);
+            color: white;
+        }
+        .editor-content {
+            flex: 1;
+            position: relative;
+        }
+        .editor-pane {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: none;
+            background: var(--editor-bg);
+        }
+        .editor-pane.active {
+            display: block;
+        }
+        .editor-wrapper {
+            display: flex;
+            height: 100%;
+        }
+        .line-numbers {
+            padding: 10px 8px;
+            background: var(--tab-bg);
+            border-right: 1px solid var(--border-color);
+            color: var(--editor-text);
+            text-align: right;
+            user-select: none;
+        }
+        textarea {
+            width: 100%;
+            height: calc(100% - 36px);
+            border: none;
+            resize: none;
+            padding: 10px;
+            font-family: monospace;
+            tab-size: 4;
+            background: var(--editor-bg);
+            color: var(--editor-text);
+        }
+        #preview {
+            height: 100%;
+            padding: 15px;
+            overflow: auto;
+            background: var(--preview-bg);
+            color: var(--editor-text);
+        }
+        .preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .preview-controls button {
+            padding: 5px 10px;
+            margin-left: 5px;
+            background: var(--tab-bg);
+            border: 1px solid var(--border-color);
+            color: var(--editor-text);
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .resizer {
+            width: 8px;
+            background: var(--drag-line);
+            cursor: col-resize;
+            transition: background 0.3s;
+            position: relative;
+            z-index: 10;
+        }
+        .resizer:hover, .resizer.dragging {
+            background: var(--drag-line-active);
+        }
+        /* 预览区域缩放控制 */
+        .preview-scale-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: var(--header-bg);
+            padding: 5px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+        .preview-scale-controls select {
+            padding: 2px 5px;
+            background: var(--tab-bg);
+            color: var(--editor-text);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+        }
+        /* 预览iframe容器 */
+        .preview-container {
+            position: relative;
+            width: 100%;
+            height: calc(100% - 50px);
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px;
+        }
+        /* 全屏模式样式 */
+        .fullscreen {
+            position: fixed !important;
+            top: 0;
+            left: 0;
+            width: 100% !important;
+            height: 100% !important;
+            z-index: 9999;
+        }
+        /* 拖动手柄样式 */
+        .drag-handle {
+            position: absolute;
+            top: 50%;
+            left: -20px;
+            width: 40px;
+            height: 40px;
+            background: var(--drag-line);
+            border-radius: 50%;
+            transform: translateY(-50%);
+            cursor: move;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 20px;
+            z-index: 1000;
+        }
+        .drag-handle:hover {
+            background: var(--drag-line-active);
+        }
+        /* 全屏按钮样式 */
+        .fullscreen-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            background: var(--tab-bg);
+            border: 1px solid var(--border-color);
+            color: var(--editor-text);
+            cursor: pointer;
+            border-radius: 4px;
+            z-index: 1001;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 编辑器容器 -->
+        <div class="editor-container">
+            <div class="toolbar">
+                <button id="save-btn">保存代码</button>
+                <button class="theme-toggle" id="theme-toggle">切换主题</button>
+            </div>
+            <div class="tab-header">
+                <button class="tab-btn active" data-target="html-pane">HTML</button>
+                <button class="tab-btn" data-target="css-pane">CSS</button>
+                <button class="tab-btn" data-target="js-pane">JavaScript</button>
+            </div>
+            <div class="editor-content">
+                <div class="editor-pane active" id="html-pane">
+                    <div class="editor-wrapper">
+                        <div class="line-numbers" id="html-lines"></div>
+                        <textarea id="html-code" placeholder="输入HTML代码" spellcheck="false"></textarea>
+                    </div>
+                </div>
+                <div class="editor-pane" id="css-pane">
+                    <div class="editor-wrapper">
+                        <div class="line-numbers" id="css-lines"></div>
+                        <textarea id="css-code" placeholder="输入CSS代码" spellcheck="false"></textarea>
+                    </div>
+                </div>
+                <div class="editor-pane" id="js-pane">
+                    <div class="editor-wrapper">
+                        <div class="line-numbers" id="js-lines"></div>
+                        <textarea id="js-code" placeholder="输入JavaScript代码" spellcheck="false"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- 分隔线 -->
+        <div class="resizer" id="resizer">
+            <div class="drag-handle">⋮</div>
+        </div>
+        <!-- 预览区域 -->
+        <div id="preview">
+            <div class="preview-header">
+                <span id="preview-title">实时预览</span>
+                <div class="preview-controls">
+                    <button id="refresh-preview">刷新预览</button>
+                    <button id="toggle-preview">收起预览</button>
+                    <button id="reset-layout">重置布局</button>
+                    <button id="fullscreen-toggle">全屏</button>
+                </div>
+            </div>
+            <div class="preview-scale-controls">
+                <select id="preview-scale">
+                    <option value="1">100%</option>
+                    <option value="0.75">75%</option>
+                    <option value="0.5">50%</option>
+                    <option value="custom">自定义尺寸</option>
+                </select>
+                <div id="custom-size" style="display: none;">
+                    <input type="number" id="preview-width" placeholder="宽度" value="640">
+                    <input type="number" id="preview-height" placeholder="高度" value="360">
+                </div>
+            </div>
+            <div class="preview-container">
+                <iframe id="preview-frame" title="代码预览"></iframe>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.24.1/prism.min.js"></script>
+    <script>
+        // 初始化变量
+        let isDragging = false;
+        let editorRatio = parseFloat(localStorage.getItem('editorRatio')) || 0.7;
+        let isPreviewVisible = localStorage.getItem('previewVisible') !== 'false';
+        let lastDragX = 0;
+        const dragThreshold = 5; // 拖动阈值
+
+        // 布局更新函数
+        function updateLayout() {
+            const editorContainer = document.querySelector('.editor-container');
+            const preview = document.getElementById('preview');
+            editorContainer.style.width = `${editorRatio * 100}%`;
+            preview.style.width = isPreviewVisible ? `${(1 - editorRatio) * 100}%` : '0';
+            preview.style.display = isPreviewVisible ? 'block' : 'none';
+            preview.style.overflow = isPreviewVisible ? 'auto' : 'hidden';
+            const togglePreviewBtn = document.getElementById('toggle-preview');
+            if (togglePreviewBtn) {
+                togglePreviewBtn.textContent = isPreviewVisible ? '收起预览' : '展开预览';
+            }
+        }
+
+        // 拖拽功能
+        const resizer = document.getElementById('resizer');
+        resizer.addEventListener('mousedown', function(e) {
+            isDragging = true;
+            lastDragX = e.clientX;
+            resizer.classList.add('dragging');
+            document.body.style.userSelect = 'none';
+        });
+        document.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            const deltaX = e.clientX - lastDragX;
+            if (Math.abs(deltaX) > dragThreshold) {
+                const containerWidth = document.querySelector('.container').offsetWidth;
+                editorRatio = Math.min(Math.max(e.clientX / containerWidth, 0.15), 0.85);
+                updateLayout();
+                lastDragX = e.clientX;
+            }
+        });
+        document.addEventListener('mouseup', function() {
+            if (isDragging) {
+                isDragging = false;
+                resizer.classList.remove('dragging');
+                document.body.style.userSelect = '';
+                localStorage.setItem('editorRatio', editorRatio);
+            }
+        });
+
+        // 选项卡切换
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                document.querySelectorAll('.editor-pane').forEach(pane => pane.classList.remove('active'));
+                document.getElementById(this.dataset.target).classList.add('active');
+            });
+        });
+
+        // 主题切换
+        document.getElementById('theme-toggle').addEventListener('click', function() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            if (currentTheme === 'dark') {
+                document.documentElement.removeAttribute('data-theme');
+                localStorage.setItem('theme', 'light');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                localStorage.setItem('theme', 'dark');
+            }
+        });
+        if (localStorage.getItem('theme') === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+
+        // 保存功能
+        document.getElementById('save-btn').addEventListener('click', function() {
+            localStorage.setItem('htmlCode', document.getElementById('html-code').value);
+            localStorage.setItem('cssCode', document.getElementById('css-code').value);
+            localStorage.setItem('jsCode', document.getElementById('js-code').value);
+            alert('代码已保存到本地存储！');
+        });
+        if (localStorage.getItem('htmlCode')) {
+            document.getElementById('html-code').value = localStorage.getItem('htmlCode');
+        }
+        if (localStorage.getItem('cssCode')) {
+            document.getElementById('css-code').value = localStorage.getItem('cssCode');
+        }
+        if (localStorage.getItem('jsCode')) {
+            document.getElementById('js-code').value = localStorage.getItem('jsCode');
+        }
+
+        // 预览更新函数
+        function updatePreview() {
+            const html = document.getElementById('html-code').value;
+            const css = document.getElementById('css-code').value;
+            const js = document.getElementById('js-code').value;
+            const titleMatch = html.match(/<title>(.*?)<\/title>/i);
+            const titleText = titleMatch ? titleMatch[1] : "无标题";
+            document.getElementById('preview-title').textContent = `实时预览 - "${titleText}"`;
+            const frame = document.getElementById('preview-frame');
+            frame.contentDocument.open();
+            frame.contentDocument.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <style>${css}</style>
+                </head>
+                <body>
+                    ${html}
+                    <script>${js}<\/script>
+                </body>
+                </html>
+            `);
+            frame.contentDocument.close();
+        }
+
+        // 预览控制功能
+        document.getElementById('refresh-preview').addEventListener('click', updatePreview);
+        document.getElementById('toggle-preview').addEventListener('click', function() {
+            isPreviewVisible = !isPreviewVisible;
+            localStorage.setItem('previewVisible', isPreviewVisible);
+            updateLayout();
+        });
+        document.getElementById('reset-layout').addEventListener('click', function() {
+            editorRatio = 0.7;
+            isPreviewVisible = true;
+            localStorage.setItem('editorRatio', editorRatio);
+            localStorage.setItem('previewVisible', isPreviewVisible);
+            updateLayout();
+            updatePreview();
+        });
+
+        // 行号更新
+        function updateLineNumbers(textarea, lineNumbersDiv) {
+            const lines = textarea.value.split('\n').length;
+            lineNumbersDiv.innerHTML = Array(lines).fill(0).map((_, i) => i + 1).join('<br>');
+        }
+        document.querySelectorAll('textarea').forEach(textarea => {
+            const lineNumbersDiv = document.getElementById(textarea.id.replace('code', 'lines'));
+            updateLineNumbers(textarea, lineNumbersDiv);
+            textarea.addEventListener('input', () => {
+                updateLineNumbers(textarea, lineNumbersDiv);
+                updatePreview();
+            });
+            textarea.addEventListener('scroll', () => {
+                lineNumbersDiv.scrollTop = textarea.scrollTop;
+            });
+        });
+
+        // Tab键支持
+        document.querySelectorAll('textarea').forEach(textarea => {
+            textarea.addEventListener('keydown', function(e) {
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    const start = this.selectionStart;
+                    const end = this.selectionEnd;
+                    this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
+                    this.selectionStart = this.selectionEnd = start + 4;
+                }
+            });
+        });
+
+        // 预览缩放功能
+        const previewScale = document.getElementById('preview-scale');
+        const previewFrame = document.getElementById('preview-frame');
+        const customSize = document.getElementById('custom-size');
+        const previewWidth = document.getElementById('preview-width');
+        const previewHeight = document.getElementById('preview-height');
+        function updatePreviewSize() {
+            const scale = previewScale.value;
+            if (scale === 'custom') {
+                customSize.style.display = 'block';
+                previewFrame.style.width = previewWidth.value + 'px';
+                previewFrame.style.height = previewHeight.value + 'px';
+                previewFrame.style.transform = '';
+            } else {
+                customSize.style.display = 'none';
+                previewFrame.style.width = '100%';
+                previewFrame.style.height = '100%';
+                previewFrame.style.transform = `scale(${scale})`;
+                previewFrame.style.transformOrigin = 'top center';
+            }
+        }
+        previewScale.addEventListener('change', updatePreviewSize);
+        previewWidth.addEventListener('input', updatePreviewSize);
+        previewHeight.addEventListener('input', updatePreviewSize);
+
+        // 全屏切换功能
+        document.getElementById('fullscreen-toggle').addEventListener('click', function() {
+            const preview = document.getElementById('preview');
+            if (!document.fullscreenElement) {
+                preview.requestFullscreen();
+                this.textContent = '退出全屏';
+                preview.classList.add('fullscreen');
+            } else {
+                document.exitFullscreen();
+                this.textContent = '全屏';
+                preview.classList.remove('fullscreen');
+            }
+        });
+        document.addEventListener('fullscreenchange', function() {
+            if (!document.fullscreenElement) {
+                document.getElementById('fullscreen-toggle').textContent = '全屏';
+                document.getElementById('preview').classList.remove('fullscreen');
+            }
+        });
+
+        // 初始化编辑器内容
+        const defaultHtml = '<!DOCTYPE html>\n<html>\n<head>\n    <title>示例页面</title>\n</head>\n<body>\n    <h1>欢迎使用代码编辑器</h1>\n    <p>拖拽中间分隔线可调整布局大小</p>\n</body>\n</html>';
+        const defaultCss = 'body {\n    font-family: Arial, sans-serif;\n    padding: 20px;\n}\n\nh1 {\n    color: #2196F3;\n}';
+        const defaultJs = 'console.log("JavaScript代码执行成功！");';
+        if (!localStorage.getItem('htmlCode')) document.getElementById('html-code').value = defaultHtml;
+        if (!localStorage.getItem('cssCode')) document.getElementById('css-code').value = defaultCss;
+        if (!localStorage.getItem('jsCode')) document.getElementById('js-code').value = defaultJs;
+
+        // 初始化布局和预览
+        updateLayout();
+        updatePreview();
+        updatePreviewSize();
+
+        // 本地高亮备用
+        function highlightCode(code, language) {
+            const keywords = ['function', 'return', 'var', 'let', 'const', 'if', 'else', 'for', 'while'];
+            return code.replace(/\b(\w+)\b/g, function(match) {
+                if (keywords.includes(match)) {
+                    return `<span class="keyword">${match}</span>`;
+                }
+                return match;
+            });
+        }
+        window.addEventListener('error', function(e) {
+            if (e.target.src && e.target.src.includes('prism')) {
+                console.log('Prism加载失败，使用本地高亮');
+                // 实现本地高亮逻辑
+            }
+        }, true);
+    </script>
+</body>
+</html>
